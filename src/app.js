@@ -126,7 +126,7 @@ app.post("/customers", async (req, res) => {
         const clients = await connection.query('SELECT * FROM customers')
         const cpfExists = clients.rows.find(client => client.cpf === cpf)
         if(schemaError){
-            res.send("deu ruim")
+            res.sendStatus(400)
             return
         } else if(cpfExists){
             res.sendStatus(409)
@@ -141,6 +141,36 @@ app.post("/customers", async (req, res) => {
     }
 })
 
+app.put("/customers/:id", async (req, res) => {
+    const { name, phone, cpf, birthday} = req.body
+    const { schemaError, value} = customerSchema.validate(req.body)
+    try {
+        const clients = await connection.query('SELECT * FROM customers')
+        const cpfExists = clients.rows.find(client => {
+            if(client.id !== req.params.id){
+                client.cpf === cpf
+            }
+        })
+        if(schemaError){
+            console.log("erro")
+            res.sendStatus(400)
+            return
+        } else if(cpfExists){
+            res.sendStatus(409)
+            return
+        }
+
+        await connection.query(`
+        UPDATE customers 
+        SET name = $1, phone = $2, cpf = $3, birthday = $4 
+        WHERE customers.id = $5
+        `, [name, phone, cpf, birthday, req.params.id])
+        res.sendStatus(200)
+    } catch (error) {
+        console.log(error)
+        res.sendStatus(400)
+    }
+})
 
 app.listen(4000, () => {
     console.log("Server listening at port 4000")
