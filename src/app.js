@@ -14,7 +14,7 @@ const connection = new Pool({
     database: 'boardcamp'
 })
 
-app.get("/categories", async(req, res) => {
+app.get("/categories", async (req, res) => {
     try {
         const categories = await connection.query('SELECT * FROM categories')
         res.send(categories.rows)
@@ -24,11 +24,25 @@ app.get("/categories", async(req, res) => {
     }
 })
 
-
-
-
-
-
+app.post("/categories", async (req, res) => {
+    const { name } = req.body
+    const categories = await connection.query('SELECT * FROM categories')
+    const nameExists = categories.rows.find(category => category.name === name)
+    if(name.length === 0){
+        res.sendStatus(400)
+        return
+    } else if(nameExists){
+        res.sendStatus(409)
+        return
+    }
+    try {
+        await connection.query('INSERT INTO categories (name) VALUES ($1)', [name])
+        res.send("OK")
+    } catch (error) {
+        console.log(error)
+        res.sendStatus(201)
+    }
+})
 
 app.listen(4000, () => {
     console.log("Server listening at port 4000")
