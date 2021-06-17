@@ -1,8 +1,24 @@
 import express from 'express'
 import connection from './database/database.js'
+import joi from 'joi'
 
 const app = express()
 app.use(express.json())
+
+const gameSchema = joi.object({
+    name: joi.string().required(),
+    image: joi.string(),
+    stockTotal: joi.number().integer().min(1),
+    pricePerDay: joi.number().integer().min(1),
+    categoryId: joi.number()
+})
+
+const customerSchema = joi.object({
+    name: joi.string().required(),
+    phone: joi.string().pattern(/^[0-9]{10,11}?/),
+    cpf: joi.string().pattern(/^[0-9]{11}?/),
+    birthday: joi.date()
+})
 
 // CRUD CATEGORIES
 app.get("/categories", async (req, res) => {
@@ -52,15 +68,13 @@ app.get("/games", async (req, res) => {
 app.post("/games", async (req, res) => {
     try {
         const { name, image, stockTotal, categoryId, pricePerDay } = req.body
-        const nameIsEmpty = name.length === 0
-        const stockAndPricePositives = (stockTotal > 0 && pricePerDay > 0)
         const categories = await connection.query('SELECT * FROM categories')
         const categoryIdExists = categories.rows.find(category => category.id === categoryId)
-
         const games = await connection.query('SELECT * FROM games')
         const gameNameExists = games.rows.find(game => game.name === name)
+        const { error, value} = gameSchema.validate(req.body)
 
-        if(nameIsEmpty || !stockAndPricePositives || !categoryIdExists){
+        if(error || !categoryIdExists){
             res.sendStatus(400)
             return
         } else if(gameNameExists){
@@ -106,7 +120,25 @@ app.get("/customers/:id", async (req, res) => {
 
 
 app.post("/customers", async (req, res) => {
+    const { name, phone, cpf, birthday } = req.body
+    const { schemaError, value} = customerSchema.validate(req.body)
+    try {
+        const clients = await connection.query('SELECT * FROM customers')
+        const cpfExists = clients.rows.find(client => client.cpf === cpf)
+        if(schemaError){
+            res.send("deu ruim")
+            return
+        } else if(cpfExists){
+            res.sendStatus(409)
+            return
+        }
 
+        await connection.query('INSERT INTO customers (name, phone, cpf, birthday) VALUES ($1, $2, $3, $4)', [name, phone, cpf, birthday])
+        res.sendStatus(201)
+    } catch (error) {
+        console.log(error)
+        res.sendStatus(400)
+    }
 })
 
 
