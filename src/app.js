@@ -66,9 +66,8 @@ app.post("/games", async (req, res) => {
     const games = await connection.query('SELECT * FROM games')
     const gameNameExists = games.rows.find(game => game.name === name)
 
-    if(nameIsEmpty || stockAndPricePositives || !categoryIdExists){
-        res.send("deu ruim")
-
+    if(nameIsEmpty || !stockAndPricePositives || !categoryIdExists){
+        res.sendStatus(400)
         return
     } else if(gameNameExists){
         res.sendStatus(409)
@@ -76,7 +75,7 @@ app.post("/games", async (req, res) => {
     }
 
     try {
-        await connection.query('INSERT INTO games (name, image, stockTotal, categoryId, pricePerDay) VALUES ($1, $2, $3, $4, $5)', [name, image, stockTotal, categoryId, pricePerDay])
+        await connection.query('INSERT INTO games (name, image, "stockTotal", "categoryId", "pricePerDay") VALUES ($1, $2, $3, $4, $5)', [name, image, stockTotal, categoryId, pricePerDay])
         res.sendStatus(201)
     } catch (error) {
         console.log(error)
