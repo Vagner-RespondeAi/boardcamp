@@ -251,7 +251,7 @@ app.post('/rentals/:id/return', async (req, res) => {
         const pricePerDay = rental.rows[0].originalPrice / daysRented
         const daysDiff = dayjs(returnDate).diff(rentDate, 'hour') / 24
         const isOverdue = daysDiff > daysRented
-        let delayFee = 0
+        const delayFee = isOverdue ? (daysDiff - daysRented) * pricePerDay : 0
 
         if(rental.rows.length === 0){
             res.sendStatus(404)
@@ -261,9 +261,6 @@ app.post('/rentals/:id/return', async (req, res) => {
             res.sendStatus(400)
             return
         }
-        if(isOverdue){
-            delayFee = (daysDiff - daysRented) * pricePerDay
-        }
 
         res.sendStatus(200)
         await connection.query(`
@@ -271,6 +268,28 @@ app.post('/rentals/:id/return', async (req, res) => {
             SET "returnDate" = $1, "delayFee" = $2
             WHERE id = $3
         `, [returnDate, delayFee, rentalId])
+    } catch (error) {
+        console.log(error)
+        res.sendStatus(400)
+    }
+})
+
+app.delete('/rentals/:id', async (req, res) => {
+    const rentalId = req.params.id
+    try {
+        const rental = await connection.query('SELECT * FROM rentals WHERE id = $1', [rentalId])
+
+        if(rental.rows.length === 0){
+            res.sendStatus(404)
+            return
+        }
+        if(rental.rows[0].returnDate !== null){
+            res.sendStatus(400)
+            return
+        }
+        await connection.query('DELETE FROM rentals WHERE id = $1', [rentalId])
+
+        res.sendStatus(200)
     } catch (error) {
         console.log(error)
         res.sendStatus(400)
