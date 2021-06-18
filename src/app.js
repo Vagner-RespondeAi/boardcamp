@@ -1,9 +1,12 @@
 import express from 'express'
 import connection from './database/database.js'
 import joi from 'joi'
+import cors from 'cors'
+import dayjs from 'dayjs'
 
 const app = express()
 app.use(express.json())
+app.use(cors())
 
 const gameSchema = joi.object({
     name: joi.string().required(),
@@ -57,8 +60,7 @@ app.get("/games", async (req, res) => {
             SELECT games.*, categories.name AS "categoryName" 
             FROM games JOIN categories ON games."categoryId" = categories.id
             WHERE games.name ILIKE $1
-            `, [nameQuery + "%"]
-        )
+        `, [nameQuery + "%"])
         res.send(games.rows)
     } catch (error) {
         res.sendStatus(400)
@@ -82,7 +84,11 @@ app.post("/games", async (req, res) => {
             return
         }
 
-        await connection.query('INSERT INTO games (name, image, "stockTotal", "categoryId", "pricePerDay") VALUES ($1, $2, $3, $4, $5)', [name, image, stockTotal, categoryId, pricePerDay])
+        await connection.query(`
+            INSERT INTO games 
+            (name, image, "stockTotal", "categoryId", "pricePerDay") 
+            VALUES ($1, $2, $3, $4, $5)
+        `, [name, image, stockTotal, categoryId, pricePerDay])
         res.sendStatus(201)
     } catch (error) {
         res.sendStatus(400)
@@ -94,9 +100,9 @@ app.get("/customers", async (req, res) => {
     const cpfQuery =  req.query.cpf ?? ""
     try {
         const customers = await connection.query(`
-        SELECT * 
-        FROM customers
-        WHERE cpf ILIKE $1
+            SELECT * 
+            FROM customers
+            WHERE cpf ILIKE $1
         `, [cpfQuery + "%"])
 
         res.send(customers.rows)
@@ -108,9 +114,9 @@ app.get("/customers", async (req, res) => {
 app.get("/customers/:id", async (req, res) => {
     try {
         const customers = await connection.query(`
-        SELECT * 
-        FROM customers 
-        WHERE id ILIKE $1
+            SELECT * 
+            FROM customers 
+            WHERE id ILIKE $1
         `, [req.params.id])
         res.send(customers.rows)
     } catch (error) {
@@ -161,9 +167,9 @@ app.put("/customers/:id", async (req, res) => {
         }
 
         await connection.query(`
-        UPDATE customers 
-        SET name = $1, phone = $2, cpf = $3, birthday = $4 
-        WHERE customers.id = $5
+            UPDATE customers 
+            SET name = $1, phone = $2, cpf = $3, birthday = $4 
+            WHERE customers.id = $5
         `, [name, phone, cpf, birthday, req.params.id])
         res.sendStatus(200)
     } catch (error) {
@@ -171,6 +177,54 @@ app.put("/customers/:id", async (req, res) => {
         res.sendStatus(400)
     }
 })
+
+// CRUD RENTALS
+
+app.get('/rentals', async (req, res) => {
+    try {
+        const rentals = await connection.query(`
+            SELECT rentals.*, 
+            jsonb_build_object('name', customers.name, 'id', customers.id) AS customer,
+            jsonb_build_object('id', games.id, 'name', games.name, 'categoryId', games."categoryId", 'categoryName', categories.name) AS game            
+            FROM rentals 
+            JOIN customers ON rentals."customerId" = customers.id
+            JOIN games ON rentals."gameId" = games.id
+            JOIN categories ON categories.id = games."categoryId"
+        `)
+        res.send(rentals.rows)
+    } catch (error) {
+        res.sendStatus(400)
+    }
+})
+
+
+app.post('/rentals', async (req, res) => {
+    const { customerId, gameId, daysRented} = req.body
+    try {
+        const games = await connection.query(`SELECT * FROM games`)
+        const gamePriceAndStock = await connection.query(`SELECT games."pricePerDay", games."stockTotal" FROM games WHERE id = $1`, [gameId])
+        const gamePricePerDay = gamePriceAndStock.rows[0].pricePerDay
+        const gameStock = gamePriceAndStock.rows[0].stockTotal
+        const customers = await connection.query(`SELECT * FROM customers`)
+        const rentals = await connection.query(`SELECT * FROM rentals`)
+        const gameTotalRentals = rentals.rows.filter(rental => rental.gameId === gameId)
+        const gameIsAvailable = (gameStock - gameTotalRentals.length > 0)
+        const foundGameId = games.rows.find(game => game.id === gameId)
+        const foundCustomerId = customers.rows.find(customer => customer.id === customerId)
+
+        if(!foundGameId || !foundCustomerId || daysRented <= 0 || !gameIsAvailable){
+            res.sendStatus(400)
+            return
+        }
+        const rentDate = dayjs().format('YYYY-MM-DD')
+        const originalPrice = daysRented * gamePricePerDay
+        await connection.query(`INSERT INTO rentals ("customerId", "gameId", "daysRented", "rentDate", "originalPrice") VALUES ($1, $2, $3, $4, $5)`, [customerId, gameId, daysRented, rentDate, originalPrice])
+        res.sendStatus(201)
+    } catch (error) {
+        res.sendStatus(400)
+    } 
+})
+
 
 app.listen(4000, () => {
     console.log("Server listening at port 4000")
