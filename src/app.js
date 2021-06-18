@@ -181,22 +181,38 @@ app.put("/customers/:id", async (req, res) => {
 // CRUD RENTALS
 
 app.get('/rentals', async (req, res) => {
+    const customerIdQuery = req.query.customerId ?? ""
+    const gameIdQuery = req.query.gameId ?? ""
+    const query = `
+        SELECT rentals.*, 
+        jsonb_build_object('name', customers.name, 'id', customers.id) AS customer,
+        jsonb_build_object('id', games.id, 'name', games.name, 'categoryId', games."categoryId", 'categoryName', categories.name) AS game            
+        FROM rentals 
+        JOIN customers ON rentals."customerId" = customers.id
+        JOIN games ON rentals."gameId" = games.id
+        JOIN categories ON categories.id = games."categoryId"
+    `
+    let whereClause = ""
+    let queryVars = []
+
+    if(customerIdQuery && gameIdQuery){
+        whereClause = `WHERE rentals."customerId" = $1 OR rentals."gameId" = $2`
+        queryVars = [customerIdQuery, gameIdQuery]
+    } else if(customerIdQuery){
+        whereClause = `WHERE rentals."customerId" = $1`
+        queryVars = [customerIdQuery]
+    } else if(gameIdQuery){
+        whereClause = `WHERE rentals."gameId" = $1`
+        queryVars = [gameIdQuery]
+    }
+
     try {
-        const rentals = await connection.query(`
-            SELECT rentals.*, 
-            jsonb_build_object('name', customers.name, 'id', customers.id) AS customer,
-            jsonb_build_object('id', games.id, 'name', games.name, 'categoryId', games."categoryId", 'categoryName', categories.name) AS game            
-            FROM rentals 
-            JOIN customers ON rentals."customerId" = customers.id
-            JOIN games ON rentals."gameId" = games.id
-            JOIN categories ON categories.id = games."categoryId"
-        `)
+        const rentals = await connection.query(query + whereClause, queryVars)
         res.send(rentals.rows)
     } catch (error) {
         res.sendStatus(400)
     }
 })
-
 
 app.post('/rentals', async (req, res) => {
     const { customerId, gameId, daysRented} = req.body
@@ -225,6 +241,41 @@ app.post('/rentals', async (req, res) => {
     } 
 })
 
+app.post('/rentals/:id/return', async (req, res) => {
+    try {
+        const rentalId = req.params.id
+        const returnDate = dayjs().format('YYYY-MM-DD')
+        const rental = await connection.query('SELECT * FROM rentals WHERE id = $1', [rentalId])
+        const rentDate = dayjs(rental.rows[0].rentDate).format('YYYY-MM-DD')
+        const daysRented = rental.rows[0].daysRented
+        const pricePerDay = rental.rows[0].originalPrice / daysRented
+        const daysDiff = dayjs(returnDate).diff(rentDate, 'hour') / 24
+        const isOverdue = daysDiff > daysRented
+        let delayFee = 0
+
+        if(rental.rows.length === 0){
+            res.sendStatus(404)
+            return
+        }
+        if(rental.rows[0].returnDate !== null){
+            res.sendStatus(400)
+            return
+        }
+        if(isOverdue){
+            delayFee = (daysDiff - daysRented) * pricePerDay
+        }
+
+        res.sendStatus(200)
+        await connection.query(`
+            UPDATE rentals 
+            SET "returnDate" = $1, "delayFee" = $2
+            WHERE id = $3
+        `, [returnDate, delayFee, rentalId])
+    } catch (error) {
+        console.log(error)
+        res.sendStatus(400)
+    }
+})
 
 app.listen(4000, () => {
     console.log("Server listening at port 4000")
